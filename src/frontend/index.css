@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 13.3 0.04 240;
+    --foreground: 85 0.06 220;
+    --card: 15.5 0.06 240;
+    --card-foreground: 85 0.06 220;
+    --popover: 15.5 0.06 240;
+    --popover-foreground: 85 0.06 220;
+    --primary: 75 0.22 160;
+    --primary-foreground: 10 0 0;
+    --secondary: 20 0.08 240;
+    --secondary-foreground: 85 0.06 220;
+    --muted: 20 0.05 240;
+    --muted-foreground: 45 0.09 220;
+    --accent: 75 0.22 195;
+    --accent-foreground: 10 0 0;
+    --destructive: 55 0.22 15;
+    --destructive-foreground: 95 0 0;
+    --border: 22 0.07 240;
+    --input: 22 0.07 240;
+    --ring: 75 0.22 195;
+    --radius: 0.5rem;
+    --chart-1: 75 0.22 160;
+    --chart-2: 55 0.22 15;
+    --chart-3: 75 0.22 65;
+    --chart-4: 65 0.25 290;
+    --chart-5: 65 0.22 195;
+    --sidebar: 15.5 0.06 240;
+    --sidebar-foreground: 85 0.06 220;
+    --sidebar-primary: 75 0.22 160;
+    --sidebar-primary-foreground: 10 0 0;
+    --sidebar-accent: 20 0.05 240;
+    --sidebar-accent-foreground: 85 0.06 220;
+    --sidebar-border: 22 0.07 240;
+    --sidebar-ring: 75 0.22 195;
+
+    /* CryptoBot custom tokens */
+    --cb-bg: #020810;
+    --cb-surface: #050d1c;
+    --cb-card: #07111f;
+    --cb-border: #0c1e38;
+    --cb-border2: #112848;
+    --cb-green: #00ff88;
+    --cb-red: #ff3060;
+    --cb-yellow: #ffd700;
+    --cb-blue: #00aaff;
+    --cb-cyan: #00e5ff;
+    --cb-purple: #b066ff;
+    --cb-orange: #ff8c00;
+    --cb-text: #c8dff5;
+    --cb-muted: #2e4d6a;
+    --cb-dim: #0e2236;
+
+    --font-heading: 'Orbitron', monospace;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-body: 'Rajdhani', sans-serif;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  min-height: 100vh;
+  background: var(--cb-bg);
+  color: var(--cb-text);
+  font-family: var(--font-mono);
+  overflow-x: hidden;
+}
+
+/* Animated grid background */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,170,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,170,255,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: gridDrift 20s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scanlines */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,229,255,0.012) 3px,
+    rgba(0,229,255,0.012) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+@keyframes gridDrift {
+  from { background-position: 0 0; }
+  to { background-position: 48px 48px; }
+}
+
+@keyframes livePulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.7; }
+}
+
+@keyframes badgePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes iconBounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes histSlide {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tickerScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--cb-bg); }
+::-webkit-scrollbar-thumb { background: var(--cb-border2); border-radius: 2px; }
