@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PredictionsPanel } from "./components/PredictionsPanel";
 import { TradingViewChart } from "./components/TradingViewChart";
 import { TradingViewTechAnalysis } from "./components/TradingViewTechAnalysis";
 import { TradingViewTicker } from "./components/TradingViewTicker";
+import { use15MinPrediction } from "./hooks/use15MinPrediction";
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 interface Candle {
@@ -700,6 +702,7 @@ export default function App() {
   }>({ msg: "", cls: "", show: false });
   const [activeChartTab, setActiveChartTab] = useState(0);
   const [clock, setClock] = useState("");
+  const [coinSearch, setCoinSearch] = useState("");
   const [tickerData, setTickerData] = useState<
     Array<{ id: string; price: string; pct: string; up: boolean }>
   >([]);
@@ -1083,6 +1086,25 @@ export default function App() {
     setSignalHistory([...sigHistRef.current]);
   }, []);
 
+  // ── 15-min predictions ──────────────────────────────────────────────────────
+  const getPriceHistory = useCallback((coinId: string) => {
+    return candleBuffersRef.current[coinId]?.map((c) => c.close) ?? [];
+  }, []);
+
+  const coinIds = COINS.map((c) => c.id);
+  const { predictions, nextRefreshIn, lastUpdated } = use15MinPrediction(
+    getPriceHistory,
+    coinIds,
+  );
+
+  const coinMeta = Object.fromEntries(
+    COINS.map((c) => [c.id, { icon: c.icon, name: c.name, color: c.color }]),
+  );
+
+  const predictionMap = Object.fromEntries(
+    predictions.map((p) => [p.coinId, p]),
+  );
+
   // ── helpers ──────────────────────────────────────────────────────────────────
   const tvSymbol = TV_SYMBOLS[activeCoinId] ?? "BINANCE:BTCUSDT";
   const activeCoin = COINS.find((c) => c.id === activeCoinId)!;
@@ -1302,6 +1324,28 @@ export default function App() {
             />
           </div>
 
+          {/* SEARCH */}
+          <div style={{ marginBottom: 10 }}>
+            <input
+              data-ocid="markets.search_input"
+              type="text"
+              placeholder="Search coin..."
+              value={coinSearch}
+              onChange={(e) => setCoinSearch(e.target.value)}
+              style={{
+                width: "100%",
+                background: "var(--cb-card)",
+                border: "1px solid var(--cb-border2)",
+                borderRadius: 8,
+                color: "var(--cb-text)",
+                fontFamily: "var(--font-body)",
+                fontSize: 13,
+                padding: "8px 12px",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
           {/* PAIR LIST */}
           <div
             style={{
@@ -1311,7 +1355,11 @@ export default function App() {
               marginBottom: 20,
             }}
           >
-            {COINS.map((c, idx) => {
+            {COINS.filter(
+              (c) =>
+                c.id.toLowerCase().includes(coinSearch.toLowerCase()) ||
+                c.name.toLowerCase().includes(coinSearch.toLowerCase()),
+            ).map((c, idx) => {
               const ps = pairPrices[c.id] ?? { price: c.basePrice, pct: 0 };
               const isUp = ps.pct >= 0;
               const buf = candleBuffersRef.current[c.id];
@@ -1420,6 +1468,36 @@ export default function App() {
                       {isUp ? "▲" : "▼"}
                       {Math.abs(ps.pct).toFixed(2)}%
                     </div>
+                    {/* Prediction badge */}
+                    {predictionMap[c.id] && (
+                      <div
+                        style={{
+                          marginTop: 4,
+                          fontSize: 9,
+                          fontFamily: "var(--font-heading)",
+                          fontWeight: 700,
+                          color:
+                            predictionMap[c.id].signal === "BUY"
+                              ? "var(--cb-green)"
+                              : predictionMap[c.id].signal === "SELL"
+                                ? "var(--cb-red)"
+                                : "var(--cb-yellow)",
+                          background:
+                            predictionMap[c.id].signal === "BUY"
+                              ? "rgba(0,255,136,0.1)"
+                              : predictionMap[c.id].signal === "SELL"
+                                ? "rgba(255,48,96,0.1)"
+                                : "rgba(255,204,0,0.1)",
+                          border: `1px solid ${predictionMap[c.id].signal === "BUY" ? "rgba(0,255,136,0.3)" : predictionMap[c.id].signal === "SELL" ? "rgba(255,48,96,0.3)" : "rgba(255,204,0,0.3)"}`,
+                          borderRadius: 4,
+                          padding: "1px 5px",
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        {predictionMap[c.id].signal}{" "}
+                        {Math.round(predictionMap[c.id].confidence)}%
+                      </div>
+                    )}
                   </div>
                 </button>
               );
@@ -1504,6 +1582,14 @@ export default function App() {
           style={{ padding: 16, borderRight: "1px solid var(--cb-border)" }}
           className="center-col"
         >
+          {/* 15-MIN PREDICTIONS PANEL */}
+          <PredictionsPanel
+            predictions={predictions}
+            nextRefreshIn={nextRefreshIn}
+            lastUpdated={lastUpdated}
+            coinMeta={coinMeta}
+          />
+
           {/* STATS STRIP */}
           <div
             style={{
