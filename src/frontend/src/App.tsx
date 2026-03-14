@@ -703,6 +703,9 @@ export default function App() {
   const [activeChartTab, setActiveChartTab] = useState(0);
   const [clock, setClock] = useState("");
   const [coinSearch, setCoinSearch] = useState("");
+  const [mobileTab, setMobileTab] = useState<"markets" | "chart" | "portfolio">(
+    "chart",
+  );
   const [tickerData, setTickerData] = useState<
     Array<{ id: string; price: string; pct: string; up: boolean }>
   >([]);
@@ -1303,7 +1306,7 @@ export default function App() {
         {/* LEFT SIDEBAR */}
         <aside
           style={{ borderRight: "1px solid var(--cb-border)", padding: 16 }}
-          className="sidebar-left"
+          className={`sidebar-left${mobileTab === "markets" ? " tab-active" : ""}`}
         >
           <div
             style={{
@@ -1580,7 +1583,7 @@ export default function App() {
         {/* CENTER COLUMN */}
         <section
           style={{ padding: 16, borderRight: "1px solid var(--cb-border)" }}
-          className="center-col"
+          className={`center-col${mobileTab === "chart" ? " tab-active" : ""}`}
         >
           {/* 15-MIN PREDICTIONS PANEL */}
           <PredictionsPanel
@@ -2091,7 +2094,10 @@ export default function App() {
         </section>
 
         {/* RIGHT SIDEBAR */}
-        <aside style={{ padding: 16 }} className="sidebar-right">
+        <aside
+          style={{ padding: 16 }}
+          className={`sidebar-right${mobileTab === "portfolio" ? " tab-active" : ""}`}
+        >
           {/* P&L */}
           <div
             data-ocid="pnl.panel"
@@ -2349,6 +2355,67 @@ export default function App() {
         </a>
       </footer>
 
+      {/* MOBILE BOTTOM NAV */}
+      <nav
+        className="mobile-nav"
+        data-ocid="mobile.nav"
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          display: "flex",
+          background: "rgba(5,13,28,0.97)",
+          borderTop: "1px solid var(--cb-border2)",
+          backdropFilter: "blur(20px)",
+          zIndex: 200,
+          padding: "6px 0",
+        }}
+      >
+        {(
+          [
+            { id: "markets", icon: "◈", label: "Markets" },
+            { id: "chart", icon: "⬡", label: "Chart" },
+            { id: "portfolio", icon: "◉", label: "Portfolio" },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            data-ocid={`mobile.${tab.id}.tab`}
+            onClick={() => setMobileTab(tab.id)}
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              padding: "6px 0",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color:
+                mobileTab === tab.id ? "var(--cb-cyan)" : "var(--cb-muted)",
+              fontFamily: "var(--font-body)",
+              minHeight: 44,
+              transition: "color 0.2s",
+            }}
+          >
+            <span style={{ fontSize: 18, lineHeight: 1 }}>{tab.icon}</span>
+            <span
+              style={{
+                fontSize: 9,
+                letterSpacing: 1,
+                fontWeight: 700,
+                textTransform: "uppercase",
+              }}
+            >
+              {tab.label}
+            </span>
+          </button>
+        ))}
+      </nav>
+
       {/* Responsive grid styles via style tag */}
       <style>{`
         .crypto-main {
@@ -2364,11 +2431,15 @@ export default function App() {
           .sidebar-right {
             display: block;
           }
+          .sidebar-left { display: block !important; }
+          .center-col { display: block !important; }
+          .mobile-nav { display: none !important; }
         }
         @media (min-width: 1200px) {
           .crypto-main {
             grid-template-columns: 320px 1fr 300px;
           }
+          .sidebar-right { display: block !important; }
         }
         .ind-grid {
           grid-template-columns: 1fr 1fr;
@@ -2382,6 +2453,20 @@ export default function App() {
           .ee-grid {
             grid-template-columns: repeat(2, 1fr);
           }
+        }
+        /* Mobile tab panel visibility */
+        @media (max-width: 899px) {
+          .sidebar-left { display: none; }
+          .center-col { display: none; }
+          .sidebar-right { display: none !important; }
+          .sidebar-left.tab-active { display: block !important; }
+          .center-col.tab-active { display: block !important; }
+          .sidebar-right.tab-active { display: block !important; padding: 16px; }
+          /* Add padding at bottom for mobile nav */
+          .crypto-main { padding-bottom: 64px; }
+          /* Compact header on mobile */
+          .header-title { font-size: 13px !important; letter-spacing: 1.5px !important; }
+          .header-clock { display: none !important; }
         }
       `}</style>
     </div>

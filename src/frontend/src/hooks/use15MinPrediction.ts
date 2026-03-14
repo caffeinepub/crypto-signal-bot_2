@@ -1,25 +1,61 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const PREDICTION_INTERVAL = 900; // 15 minutes in seconds
+const BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines";
+
+/** Returns seconds remaining until the next 15-minute wall-clock boundary (:00, :15, :30, :45) */
+function secondsToNext15MinBoundary(): number {
+  const nowMs = Date.now();
+  const intervalMs = PREDICTION_INTERVAL * 1000;
+  const msUntilNext = intervalMs - (nowMs % intervalMs);
+  return Math.max(1, Math.round(msUntilNext / 1000));
+}
 
 export interface CoinPrediction {
   coinId: string;
   signal: "BUY" | "SELL" | "HOLD";
   confidence: number;
-  predictedMove: number; // % change
+  predictedMove: number;
   predictedPrice: number;
   currentPrice: number;
   rsiScore: number;
   emaScore: number;
   macdScore: number;
   bbScore: number;
+  buyPrice: number;
+  sellPrice: number;
+  targetPrice: number;
+  stopLossPrice: number;
 }
 
 export interface PredictionState {
   predictions: CoinPrediction[];
-  nextRefreshIn: number; // seconds
+  nextRefreshIn: number;
   lastUpdated: string;
 }
+
+const BINANCE_SYMBOLS: Record<string, string> = {
+  BTC: "BTCUSDT",
+  ETH: "ETHUSDT",
+  SOL: "SOLUSDT",
+  BNB: "BNBUSDT",
+  XRP: "XRPUSDT",
+  DOGE: "DOGEUSDT",
+  ADA: "ADAUSDT",
+  AVAX: "AVAXUSDT",
+  DOT: "DOTUSDT",
+  MATIC: "MATICUSDT",
+  LINK: "LINKUSDT",
+  LTC: "LTCUSDT",
+  UNI: "UNIUSDT",
+  ATOM: "ATOMUSDT",
+  TRX: "TRXUSDT",
+  NEAR: "NEARUSDT",
+  APT: "APTUSDT",
+  ARB: "ARBUSDT",
+  OP: "OPUSDT",
+  FIL: "FILUSDT",
+};
 
 function ema(arr: number[], period: number): number | null {
   if (arr.length < period) return null;
@@ -54,15 +90,15 @@ function macdValues(closes: number[]): {
   hist: number;
 } {
   if (closes.length < 26) return { macd: 0, signal: 0, hist: 0 };
-  const e12 = ema(closes, 12) ?? 0;
-  const e26 = ema(closes, 26) ?? 0;
-  const macdLine = e12 - e26;
   const macdSeries: number[] = [];
   for (let i = 26; i <= closes.length; i++) {
     const a = ema(closes.slice(0, i), 12);
     const b = ema(closes.slice(0, i), 26);
     if (a !== null && b !== null) macdSeries.push(a - b);
   }
+  const e12 = ema(closes, 12) ?? 0;
+  const e26 = ema(closes, 26) ?? 0;
+  const macdLine = e12 - e26;
   const signalLine = ema(macdSeries, 9) ?? 0;
   return { macd: macdLine, signal: signalLine, hist: macdLine - signalLine };
 }
@@ -99,29 +135,43 @@ function computePrediction(coinId: string, closes: number[]): CoinPrediction {
   const { macd: macdLine, signal: sigLine, hist } = macdValues(closes);
   let macdScore = 0;
   if (macdLine > sigLine && hist > 0)
-    macdScore = Math.min(1, (hist / price) * 100);
+    macdScore = Math.min(1, (hist / price) * 5000);
   else if (macdLine < sigLine && hist < 0)
-    macdScore = Math.max(-1, (hist / price) * 100);
+    macdScore = Math.max(-1, (hist / price) * 5000);
 
   const bbPos = bollingerPos(closes);
   const bbScore = -(bbPos - 0.5) * 2;
 
   const composite =
-    rsiScore * 0.25 + emaScore * 0.3 + macdScore * 0.3 + bbScore * 0.15;
-
-  // Scale raw composite (typically 0.01-0.2) up to a visible 55-99% range.
-  // rawConfidence 0-100; multiply by 3 and add 45-point base so weak signals
-  // show ~60% and strong signals (raw>=18) hit 99%.
-  const rawConfidence = Math.abs(composite) * 100;
-  const confidence = Math.min(99, Math.max(55, rawConfidence * 3 + 45));
+    rsiScore * 0.3 + emaScore * 0.25 + macdScore * 0.3 + bbScore * 0.15;
 
   let signal: "BUY" | "SELL" | "HOLD";
-  if (composite > 0.15) signal = "BUY";
-  else if (composite < -0.15) signal = "SELL";
+  if (composite > 0.05) signal = "BUY";
+  else if (composite < -0.05) signal = "SELL";
   else signal = "HOLD";
 
-  const predictedMove = composite * 2.5;
+  const rawConfidence = Math.abs(composite) * 100;
+  const confidence = Math.min(99, Math.max(60, rawConfidence * 2.5 + 55));
+  const predictedMove = composite * 3;
   const predictedPrice = price * (1 + predictedMove / 100);
+
+  const STOP_LOSS_PCT = 0.012;
+  const TAKE_PROFIT_PCT = Math.max(0.025, Math.abs(predictedMove) / 100);
+  const buyPrice = price;
+  const sellPrice = price;
+  let targetPrice: number;
+  let stopLossPrice: number;
+
+  if (signal === "BUY") {
+    targetPrice = price * (1 + TAKE_PROFIT_PCT);
+    stopLossPrice = price * (1 - STOP_LOSS_PCT);
+  } else if (signal === "SELL") {
+    targetPrice = price * (1 - TAKE_PROFIT_PCT);
+    stopLossPrice = price * (1 + STOP_LOSS_PCT);
+  } else {
+    targetPrice = price * (1 + TAKE_PROFIT_PCT);
+    stopLossPrice = price * (1 - STOP_LOSS_PCT);
+  }
 
   return {
     coinId,
@@ -134,7 +184,26 @@ function computePrediction(coinId: string, closes: number[]): CoinPrediction {
     emaScore,
     macdScore,
     bbScore,
+    buyPrice,
+    sellPrice,
+    targetPrice,
+    stopLossPrice,
   };
+}
+
+async function fetchBinanceKlines(
+  symbol: string,
+  limit = 100,
+): Promise<number[] | null> {
+  try {
+    const url = `${BINANCE_KLINE_URL}?symbol=${symbol}&interval=15m&limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.map((k: unknown[]) => Number.parseFloat(k[4] as string));
+  } catch {
+    return null;
+  }
 }
 
 export function use15MinPrediction(
@@ -142,20 +211,58 @@ export function use15MinPrediction(
   coinIds: string[],
 ): PredictionState {
   const [predictions, setPredictions] = useState<CoinPrediction[]>([]);
-  const [nextRefreshIn, setNextRefreshIn] = useState(PREDICTION_INTERVAL);
+  const [nextRefreshIn, setNextRefreshIn] = useState(
+    secondsToNext15MinBoundary,
+  );
   const [lastUpdated, setLastUpdated] = useState("");
-  const refreshCounterRef = useRef(PREDICTION_INTERVAL);
+  const klineCache = useRef<Record<string, number[]>>({});
+  const coinIdsRef = useRef(coinIds);
+  const getPriceHistoryRef = useRef(getPriceHistory);
 
-  const recalculate = useCallback(() => {
-    const preds = coinIds
-      .map((id) => {
-        const closes = getPriceHistory(id);
-        if (closes.length < 10) return null;
-        return computePrediction(id, closes);
-      })
-      .filter(Boolean) as CoinPrediction[];
+  useEffect(() => {
+    coinIdsRef.current = coinIds;
+  }, [coinIds]);
+  useEffect(() => {
+    getPriceHistoryRef.current = getPriceHistory;
+  }, [getPriceHistory]);
 
-    preds.sort((a, b) => b.confidence - a.confidence);
+  const recalculate = useCallback(async () => {
+    const ids = coinIdsRef.current;
+    const getHistory = getPriceHistoryRef.current;
+    const preds: CoinPrediction[] = [];
+
+    for (const id of ids) {
+      const symbol = BINANCE_SYMBOLS[id];
+      let closes: number[] | null = null;
+
+      if (symbol) {
+        const live = await fetchBinanceKlines(symbol, 100);
+        if (live && live.length >= 30) {
+          closes = live;
+          klineCache.current[id] = live;
+        }
+      }
+
+      if (!closes && klineCache.current[id]?.length >= 30) {
+        closes = klineCache.current[id];
+      }
+
+      if (!closes || closes.length < 10) {
+        const hist = getHistory(id);
+        if (hist.length >= 10) closes = hist;
+      }
+
+      if (!closes || closes.length < 10) continue;
+      preds.push(computePrediction(id, closes));
+    }
+
+    preds.sort((a, b) => {
+      const order = { BUY: 0, SELL: 1, HOLD: 2 };
+      if (order[a.signal] !== order[b.signal])
+        return order[a.signal] - order[b.signal];
+      return b.confidence - a.confidence;
+    });
+
     setPredictions(preds);
     setLastUpdated(
       new Date().toLocaleTimeString("en-US", {
@@ -164,24 +271,26 @@ export function use15MinPrediction(
         second: "2-digit",
       }),
     );
-  }, [getPriceHistory, coinIds]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     recalculate();
   }, [recalculate]);
 
+  // Countdown timer always derived from wall-clock so it matches real 15-min candle close times
   useEffect(() => {
     const interval = setInterval(() => {
-      refreshCounterRef.current -= 1;
-      if (refreshCounterRef.current <= 0) {
-        refreshCounterRef.current = PREDICTION_INTERVAL;
+      const remaining = secondsToNext15MinBoundary();
+      setNextRefreshIn(remaining);
+      // When a new 15-min candle opens (remaining resets near 900), refresh predictions
+      if (remaining >= PREDICTION_INTERVAL - 2) {
         recalculate();
       }
-      setNextRefreshIn(refreshCounterRef.current);
     }, 1000);
     return () => clearInterval(interval);
   }, [recalculate]);
 
+  // Background refresh every 30s to keep signals fresh mid-candle
   useEffect(() => {
     const interval = setInterval(recalculate, 30000);
     return () => clearInterval(interval);

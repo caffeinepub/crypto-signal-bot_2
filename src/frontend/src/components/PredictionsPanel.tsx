@@ -46,6 +46,21 @@ export function PredictionsPanel({
 
   const progress = ((900 - nextRefreshIn) / 900) * 100;
 
+  // Columns: Coin | Signal | Confidence | Buy Price | Sell Price | Target | Stop Loss | Refresh
+  const COLS = "130px 70px 90px 100px 100px 100px 100px 80px";
+  const MIN_WIDTH = 780;
+
+  const headers = [
+    "Coin",
+    "Signal",
+    "Confidence",
+    "Buy Price",
+    "Sell Price",
+    "Target",
+    "Stop Loss",
+    "Refresh In",
+  ];
+
   return (
     <div
       data-ocid="predictions.panel"
@@ -98,7 +113,6 @@ export function PredictionsPanel({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Global countdown */}
           <div
             data-ocid="predictions.timer"
             style={{
@@ -162,11 +176,7 @@ export function PredictionsPanel({
       {/* Progress bar */}
       {!collapsed && (
         <div
-          style={{
-            height: 2,
-            background: "var(--cb-dim)",
-            overflow: "hidden",
-          }}
+          style={{ height: 2, background: "var(--cb-dim)", overflow: "hidden" }}
         >
           <div
             style={{
@@ -187,22 +197,14 @@ export function PredictionsPanel({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "140px 100px 80px 80px 110px 80px 90px",
+              gridTemplateColumns: COLS,
               gap: 0,
               padding: "8px 16px",
               borderBottom: "1px solid var(--cb-border)",
-              minWidth: 680,
+              minWidth: MIN_WIDTH,
             }}
           >
-            {[
-              "Coin",
-              "Price",
-              "Signal",
-              "Confidence",
-              "Target",
-              "Est. Move",
-              "Refresh In",
-            ].map((h) => (
+            {headers.map((h) => (
               <div
                 key={h}
                 style={{
@@ -219,10 +221,58 @@ export function PredictionsPanel({
             ))}
           </div>
 
+          {/* Legend strip */}
+          <div
+            style={{
+              display: "flex",
+              gap: 20,
+              padding: "5px 16px",
+              borderBottom: "1px solid rgba(255,255,255,0.04)",
+              minWidth: MIN_WIDTH,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-body)",
+                fontSize: 9,
+                color: "var(--cb-green)",
+              }}
+            >
+              ● Buy Price = entry on BUY
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-body)",
+                fontSize: 9,
+                color: "var(--cb-red)",
+              }}
+            >
+              ● Sell Price = entry on SELL
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-body)",
+                fontSize: 9,
+                color: "var(--cb-cyan)",
+              }}
+            >
+              ● Target = take-profit (2.5%+)
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-body)",
+                fontSize: 9,
+                color: "#ff9500",
+              }}
+            >
+              ● Stop Loss = 1.2% risk level
+            </span>
+          </div>
+
           {/* Rows */}
           <div
             data-ocid="predictions.list"
-            style={{ maxHeight: 320, overflowY: "auto", minWidth: 680 }}
+            style={{ maxHeight: 400, overflowY: "auto", minWidth: MIN_WIDTH }}
           >
             {predictions.length === 0 ? (
               <div
@@ -240,31 +290,29 @@ export function PredictionsPanel({
             ) : (
               predictions.map((pred, idx) => {
                 const meta = coinMeta[pred.coinId];
-                const moveSign = pred.predictedMove >= 0 ? "+" : "";
+                const isBuy = pred.signal === "BUY";
+                const isSell = pred.signal === "SELL";
+
                 return (
                   <div
                     key={pred.coinId}
                     data-ocid={`predictions.item.${idx + 1}`}
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "140px 100px 80px 80px 110px 80px 90px",
+                      gridTemplateColumns: COLS,
                       gap: 0,
-                      padding: "9px 16px",
+                      padding: "10px 16px",
                       borderBottom: "1px solid rgba(255,255,255,0.04)",
                       alignItems: "center",
                       background:
                         idx % 2 === 0 ? "transparent" : "rgba(0,0,0,0.1)",
+                      borderLeft: `3px solid ${sigColor(pred.signal)}`,
                       transition: "background 0.2s",
                     }}
                   >
                     {/* Coin */}
                     <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
+                      style={{ display: "flex", alignItems: "center", gap: 8 }}
                     >
                       <div
                         style={{
@@ -298,18 +346,7 @@ export function PredictionsPanel({
                       </div>
                     </div>
 
-                    {/* Current Price */}
-                    <div
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 11,
-                        color: "var(--cb-text)",
-                      }}
-                    >
-                      {fmtPrice(pred.currentPrice)}
-                    </div>
-
-                    {/* Signal */}
+                    {/* Signal badge */}
                     <div>
                       <span
                         style={{
@@ -362,34 +399,128 @@ export function PredictionsPanel({
                       </span>
                     </div>
 
-                    {/* Predicted Target */}
+                    {/* Buy Price */}
                     <div
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 11,
-                        color:
-                          pred.predictedMove >= 0
-                            ? "var(--cb-green)"
-                            : "var(--cb-red)",
+                        background: isBuy
+                          ? "rgba(0,255,136,0.07)"
+                          : "transparent",
+                        borderRadius: 4,
+                        padding: "3px 6px",
                       }}
                     >
-                      {fmtPrice(pred.predictedPrice)}
+                      <div
+                        style={{
+                          fontFamily: "var(--font-body)",
+                          fontSize: 8,
+                          color: "var(--cb-muted)",
+                          letterSpacing: 1,
+                        }}
+                      >
+                        BUY AT
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: isBuy ? "var(--cb-green)" : "var(--cb-muted)",
+                        }}
+                      >
+                        {fmtPrice(pred.buyPrice)}
+                      </div>
                     </div>
 
-                    {/* Est. Move */}
+                    {/* Sell Price */}
                     <div
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color:
-                          pred.predictedMove >= 0
-                            ? "var(--cb-green)"
-                            : "var(--cb-red)",
+                        background: isSell
+                          ? "rgba(255,48,96,0.07)"
+                          : "transparent",
+                        borderRadius: 4,
+                        padding: "3px 6px",
                       }}
                     >
-                      {moveSign}
-                      {pred.predictedMove.toFixed(2)}%
+                      <div
+                        style={{
+                          fontFamily: "var(--font-body)",
+                          fontSize: 8,
+                          color: "var(--cb-muted)",
+                          letterSpacing: 1,
+                        }}
+                      >
+                        SELL AT
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: isSell ? "var(--cb-red)" : "var(--cb-muted)",
+                        }}
+                      >
+                        {fmtPrice(pred.sellPrice)}
+                      </div>
+                    </div>
+
+                    {/* Target */}
+                    <div
+                      style={{
+                        background: "rgba(0,229,255,0.05)",
+                        borderRadius: 4,
+                        padding: "3px 6px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontFamily: "var(--font-body)",
+                          fontSize: 8,
+                          color: "var(--cb-muted)",
+                          letterSpacing: 1,
+                        }}
+                      >
+                        TARGET
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: isSell ? "var(--cb-red)" : "var(--cb-green)",
+                        }}
+                      >
+                        {fmtPrice(pred.targetPrice)}
+                      </div>
+                    </div>
+
+                    {/* Stop Loss */}
+                    <div
+                      style={{
+                        background: "rgba(255,150,0,0.05)",
+                        borderRadius: 4,
+                        padding: "3px 6px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontFamily: "var(--font-body)",
+                          fontSize: 8,
+                          color: "var(--cb-muted)",
+                          letterSpacing: 1,
+                        }}
+                      >
+                        STOP LOSS
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#ff9500",
+                        }}
+                      >
+                        {fmtPrice(pred.stopLossPrice)}
+                      </div>
                     </div>
 
                     {/* Refresh In */}
@@ -421,7 +552,8 @@ export function PredictionsPanel({
             }}
           >
             ⚠️ DISCLAIMER: Predictions are algorithmic estimates for demo
-            purposes only. Not financial advice.
+            purposes only. Not financial advice. Stop-loss: 1.2% | Take-profit:
+            2.5%+
           </div>
         </div>
       )}
