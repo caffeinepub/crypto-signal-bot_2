@@ -78,6 +78,15 @@ interface PriceState {
   pct: number;
 }
 
+interface CoinSignalRow {
+  coinId: string;
+  sig: "buy" | "sell" | "neutral";
+  confidence: number;
+  price: number;
+  tp: number;
+  sl: number;
+}
+
 // ── CONSTANTS ────────────────────────────────────────────────────────────────
 const COINS: Coin[] = [
   {
@@ -391,7 +400,7 @@ const TV_SYMBOLS: Record<string, string> = {
   trx: "BINANCE:TRXUSDT",
   near: "BINANCE:NEARUSDT",
   apt: "BINANCE:APTUSDT",
-  arb: "BINANCE:ARBUDST",
+  arb: "BINANCE:ARBUSDT",
   op: "BINANCE:OPUSDT",
   fil: "BINANCE:FILUSDT",
 };
@@ -710,6 +719,7 @@ export default function App() {
     Array<{ id: string; price: string; pct: string; up: boolean }>
   >([]);
 
+  const [allCoinSignals, setAllCoinSignals] = useState<CoinSignalRow[]>([]);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── computeIndicators ───────────────────────────────────────────────────────
@@ -738,12 +748,13 @@ export default function App() {
 
     // MACD
     const macdCls =
-      m.macd > 0 && m.hist > 0
-        ? "bullish"
-        : m.macd < 0 && m.hist < 0
-          ? "bearish"
-          : "neutral-i";
-    const macdSig = m.hist > 0 ? "↗ BULLISH CROSS" : "↘ BEARISH CROSS";
+      m.hist > 0 ? "bullish" : m.hist < 0 ? "bearish" : "neutral-i";
+    const macdSig =
+      m.hist > 0
+        ? "↗ BULLISH CROSS"
+        : m.hist < 0
+          ? "↘ BEARISH CROSS"
+          : "→ NEUTRAL";
     const macdPct = Math.min(100, Math.max(0, 50 + (m.macd / price) * 5000));
 
     // EMA
@@ -818,15 +829,13 @@ export default function App() {
       reasons.push("RSI elevated");
     }
 
-    if (m.macd > 0 && m.hist > 0) {
-      bull += 2;
+    if (m.hist > 0) {
+      bull += 2.5;
       reasons.push("MACD bullish crossover");
-    } else if (m.macd < 0 && m.hist < 0) {
-      bear += 2;
+    } else if (m.hist < 0) {
+      bear += 2.5;
       reasons.push("MACD bearish crossover");
     }
-    if (m.hist > 0) bull += 0.5;
-    else bear += 0.5;
 
     if (e20 !== null && e50 !== null) {
       if (e20 > e50 && price > e20) {
@@ -908,6 +917,47 @@ export default function App() {
     };
     sigHistRef.current = [item, ...sigHistRef.current].slice(0, 20);
     setSignalHistory([...sigHistRef.current]);
+  }, []);
+
+  // ── generateAllSignals ──────────────────────────────────────────────────────
+  const generateAllSignals = useCallback(() => {
+    const rows: CoinSignalRow[] = [];
+    for (const c of COINS) {
+      const closes = candleBuffersRef.current[c.id].map((cd) => cd.close);
+      const price = closes[closes.length - 1];
+      const r = calcRsi(closes);
+      const m = calcMacd(closes);
+      const e20 = calcEma(closes, 20);
+      const e50 = calcEma(closes, 50);
+      const bb = calcBollinger(closes);
+      let bull = 0;
+      let bear = 0;
+      if (r < 30) bull += 3;
+      else if (r < 42) bull += 1.5;
+      else if (r > 70) bear += 3;
+      else if (r > 58) bear += 1.5;
+      if (m.hist > 0) bull += 2.5;
+      else if (m.hist < 0) bear += 2.5;
+      if (e20 !== null && e50 !== null) {
+        if (e20 > e50 && price > e20) bull += 2;
+        else if (e20 < e50 && price < e20) bear += 2;
+        else if (price > e20) bull += 1;
+        else bear += 1;
+      }
+      if (bb.pos < 0.15) bull += 2;
+      else if (bb.pos > 0.85) bear += 2;
+      bull += Math.random() * 1.5;
+      bear += Math.random() * 1.5;
+      const _total = bull + bear;
+      const conf = Math.min(94, Math.abs(bull - bear) * 8 + 42);
+      let sig: "buy" | "sell" | "neutral" = "neutral";
+      if (bull > bear + 2.5) sig = "buy";
+      else if (bear > bull + 2.5) sig = "sell";
+      const tp = price * (sig === "buy" ? 1.025 : 0.975);
+      const sl = price * (sig === "buy" ? 0.988 : 1.012);
+      rows.push({ coinId: c.id, sig, confidence: conf, price, tp, sl });
+    }
+    setAllCoinSignals(rows);
   }, []);
 
   // ── TICK ────────────────────────────────────────────────────────────────────
@@ -992,11 +1042,14 @@ export default function App() {
       setTickerData(td);
 
       // generate signal
-      if (tc % DEMO_SIG_TICKS === 0) generateSignal(coinId);
+      if (tc % DEMO_SIG_TICKS === 0) {
+        generateSignal(coinId);
+        generateAllSignals();
+      }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [computeIndicators, generateSignal]);
+  }, [computeIndicators, generateSignal, generateAllSignals]);
 
   // clock
   useEffect(() => {
@@ -1034,7 +1087,10 @@ export default function App() {
       }
     });
     setIndicators(computeIndicators(activeCoinId));
-    setTimeout(() => generateSignal(activeCoinId), 2000);
+    setTimeout(() => {
+      generateSignal(activeCoinId);
+      generateAllSignals();
+    }, 2000);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── switchCoin ───────────────────────────────────────────────────────────────
@@ -1042,8 +1098,10 @@ export default function App() {
     (id: string) => {
       setActiveCoinId(id);
       setIndicators(computeIndicators(id));
+      setTimeout(() => generateSignal(id), 100);
+      setMobileTab("chart");
     },
-    [computeIndicators],
+    [computeIndicators, generateSignal],
   );
 
   // ── manualTrade ──────────────────────────────────────────────────────────────
@@ -1585,6 +1643,347 @@ export default function App() {
           style={{ padding: 16, borderRight: "1px solid var(--cb-border)" }}
           className={`center-col${mobileTab === "chart" ? " tab-active" : ""}`}
         >
+          {/* COIN CHART + SIGNALS */}
+          <div
+            data-ocid="coin.chart.signal.panel"
+            style={{
+              background: "var(--cb-card)",
+              border: `1px solid ${signal.sig === "buy" ? "rgba(0,255,136,0.35)" : signal.sig === "sell" ? "rgba(255,48,96,0.35)" : "rgba(255,215,0,0.28)"}`,
+              borderRadius: 14,
+              padding: 20,
+              marginBottom: 14,
+              boxShadow:
+                signal.sig === "buy"
+                  ? "0 0 40px rgba(0,255,136,0.08)"
+                  : signal.sig === "sell"
+                    ? "0 0 40px rgba(255,48,96,0.08)"
+                    : "none",
+              transition: "border-color 0.6s, box-shadow 0.6s",
+            }}
+          >
+            {/* Header row: coin info + signal badge */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 26 }}>
+                  {coinMeta[activeCoinId]?.icon ?? "🪙"}
+                </span>
+                <div>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-heading)",
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: "var(--cb-text)",
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {activeCoin.name}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: "var(--cb-muted)",
+                    }}
+                  >
+                    {activeCoin.sym}/USDT
+                  </div>
+                </div>
+                <div style={{ marginLeft: 8 }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-heading)",
+                      fontSize: 18,
+                      fontWeight: 700,
+                      color: "var(--cb-cyan)",
+                    }}
+                  >
+                    {fmtPriceShort(activePrice)}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-body)",
+                      fontSize: 11,
+                      color: heroPct >= 0 ? "var(--cb-green)" : "var(--cb-red)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {heroPct >= 0 ? "▲" : "▼"} {Math.abs(heroPct).toFixed(2)}%
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    fontFamily: "var(--font-heading)",
+                    fontSize: 13,
+                    fontWeight: 900,
+                    letterSpacing: 2,
+                    padding: "6px 14px",
+                    borderRadius: 8,
+                    background:
+                      signal.sig === "buy"
+                        ? "rgba(0,255,136,0.15)"
+                        : signal.sig === "sell"
+                          ? "rgba(255,48,96,0.15)"
+                          : "rgba(255,215,0,0.12)",
+                    border: `1px solid ${sigColor}`,
+                    color: sigColor,
+                    textShadow:
+                      signal.sig === "buy"
+                        ? "0 0 12px rgba(0,255,136,0.5)"
+                        : signal.sig === "sell"
+                          ? "0 0 12px rgba(255,48,96,0.5)"
+                          : "none",
+                  }}
+                >
+                  {sigIcons[signal.sig]} {sigLabels[signal.sig]}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    color: "var(--cb-cyan)",
+                    background: "rgba(0,0,0,0.4)",
+                    padding: "4px 10px",
+                    borderRadius: 20,
+                    border: "1px solid var(--cb-border2)",
+                  }}
+                >
+                  {String(countdownM).padStart(2, "0")}:
+                  {String(countdownS).padStart(2, "0")}
+                </div>
+              </div>
+            </div>
+
+            {/* Section label */}
+            <div
+              style={{
+                fontFamily: "var(--font-heading)",
+                fontSize: 9,
+                letterSpacing: 2,
+                color: "var(--cb-muted)",
+                textTransform: "uppercase",
+                marginBottom: 10,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              📊 {activeCoin.name} — PRICE CHART + SIGNALS
+              <span
+                style={{ flex: 1, height: 1, background: "var(--cb-border)" }}
+              />
+            </div>
+
+            {/* Chart interval tabs */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              {["1M", "5M", "15M"].map((lbl, i) => (
+                <div
+                  key={lbl}
+                  data-ocid={`coin.chart.tab.${i + 1}`}
+                  onClick={() => {
+                    setActiveChartTab(i);
+                    activeChartTabRef.current = i;
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setActiveChartTab(i);
+                      activeChartTabRef.current = i;
+                    }
+                  }}
+                  role="tab"
+                  tabIndex={0}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    fontFamily: "var(--font-heading)",
+                    fontSize: 8,
+                    border: `1px solid ${activeChartTab === i ? "var(--cb-cyan)" : "var(--cb-border2)"}`,
+                    color:
+                      activeChartTab === i
+                        ? "var(--cb-cyan)"
+                        : "var(--cb-muted)",
+                    background:
+                      activeChartTab === i
+                        ? "rgba(0,229,255,0.06)"
+                        : "transparent",
+                    cursor: "pointer",
+                    letterSpacing: 1,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {lbl}
+                </div>
+              ))}
+            </div>
+
+            {/* TradingView Chart */}
+            <TradingViewChart symbol={tvSymbol} />
+
+            {/* Spacer */}
+            <div style={{ height: 16 }} />
+
+            {/* Signal detail: confidence bars */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 32,
+                  lineHeight: 1,
+                  animation: "iconBounce 2s ease-in-out infinite",
+                }}
+              >
+                {sigIcons[signal.sig]}
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-heading)",
+                    fontSize: 22,
+                    fontWeight: 900,
+                    letterSpacing: 2,
+                    lineHeight: 1,
+                    color: sigColor,
+                    textShadow:
+                      signal.sig === "buy"
+                        ? "0 0 30px rgba(0,255,136,0.6)"
+                        : signal.sig === "sell"
+                          ? "0 0 30px rgba(255,48,96,0.6)"
+                          : "none",
+                  }}
+                >
+                  {sigLabels[signal.sig]}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-body)",
+                    fontSize: 11,
+                    color: "var(--cb-muted)",
+                    marginTop: 2,
+                  }}
+                >
+                  {sigSubs[signal.sig]}
+                </div>
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                marginBottom: 12,
+              }}
+            >
+              <ConfBar
+                label="Confidence"
+                pct={signal.confidence}
+                cls={signal.sig}
+                color={sigColor}
+              />
+              <ConfBar
+                label="Signal Strength"
+                pct={signal.strength}
+                cls={signal.sig}
+                color={sigColor}
+              />
+              <ConfBar
+                label="Bull Score"
+                pct={signal.bullPct}
+                cls="buy"
+                color="var(--cb-green)"
+              />
+            </div>
+            <div
+              style={{
+                background: "rgba(0,0,0,0.35)",
+                borderRadius: 8,
+                padding: "10px 14px",
+                fontFamily: "var(--font-body)",
+                fontSize: 12,
+                color: "var(--cb-text)",
+                lineHeight: 1.6,
+                borderLeft: `3px solid ${sigColor}`,
+                marginBottom: signal.showEE ? 12 : 0,
+              }}
+            >
+              {signal.reason}
+            </div>
+            {signal.showEE && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4,1fr)",
+                  gap: 6,
+                }}
+              >
+                {[
+                  { label: "Entry", val: signal.entry, col: "var(--cb-cyan)" },
+                  {
+                    label: "Take Profit",
+                    val: signal.tp,
+                    col: "var(--cb-green)",
+                  },
+                  { label: "Stop Loss", val: signal.sl, col: "var(--cb-red)" },
+                  {
+                    label: "Risk/Reward",
+                    val: "1:2.1",
+                    col: "var(--cb-purple)",
+                  },
+                ].map((e) => (
+                  <div
+                    key={e.label}
+                    style={{
+                      background: "rgba(0,0,0,0.3)",
+                      borderRadius: 8,
+                      padding: "10px 8px",
+                      border: "1px solid var(--cb-border)",
+                      textAlign: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 8,
+                        color: "var(--cb-muted)",
+                        letterSpacing: 1,
+                        textTransform: "uppercase",
+                        marginBottom: 4,
+                        fontFamily: "var(--font-body)",
+                      }}
+                    >
+                      {e.label}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "var(--font-heading)",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: e.col,
+                      }}
+                    >
+                      {e.val}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* 15-MIN PREDICTIONS PANEL */}
           <PredictionsPanel
             predictions={predictions}
@@ -1655,285 +2054,241 @@ export default function App() {
             ))}
           </div>
 
-          {/* SIGNAL HERO */}
+          {/* ALL COIN SIGNALS TABLE */}
           <div
-            data-ocid="signal.hero.panel"
-            style={{
-              borderRadius: 14,
-              padding: 20,
-              marginBottom: 14,
-              border: `1px solid ${signal.sig === "buy" ? "rgba(0,255,136,0.3)" : signal.sig === "sell" ? "rgba(255,48,96,0.3)" : "rgba(255,215,0,0.25)"}`,
-              background:
-                signal.sig === "buy"
-                  ? "radial-gradient(ellipse at top left, rgba(0,255,136,0.08), transparent 70%), linear-gradient(135deg, #030f0a, #020810)"
-                  : signal.sig === "sell"
-                    ? "radial-gradient(ellipse at top left, rgba(255,48,96,0.08), transparent 70%), linear-gradient(135deg, #0f0308, #020810)"
-                    : "radial-gradient(ellipse at top left, rgba(255,215,0,0.05), transparent 70%), linear-gradient(135deg, #0d0c02, #020810)",
-              boxShadow:
-                signal.sig === "buy"
-                  ? "0 0 40px rgba(0,255,136,0.08), inset 0 0 40px rgba(0,255,136,0.03)"
-                  : signal.sig === "sell"
-                    ? "0 0 40px rgba(255,48,96,0.08), inset 0 0 40px rgba(255,48,96,0.03)"
-                    : "none",
-              transition: "all 0.6s",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 14,
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: "var(--font-heading)",
-                  fontSize: 8,
-                  letterSpacing: 2,
-                  color: "var(--cb-muted)",
-                }}
-              >
-                ⚡ BOT SIGNAL — 12MIN INTERVAL
-              </div>
-              <div
-                style={{
-                  fontFamily: "var(--font-body)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  background: "rgba(0,0,0,0.4)",
-                  padding: "3px 10px",
-                  borderRadius: 20,
-                  border: "1px solid var(--cb-border2)",
-                  color: "var(--cb-cyan)",
-                }}
-              >
-                Next: {String(countdownM).padStart(2, "0")}:
-                {String(countdownS).padStart(2, "0")}
-              </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                marginBottom: 16,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 38,
-                  lineHeight: 1,
-                  animation: "iconBounce 2s ease-in-out infinite",
-                }}
-              >
-                {sigIcons[signal.sig]}
-              </div>
-              <div>
-                <div
-                  style={{
-                    fontFamily: "var(--font-heading)",
-                    fontSize: 26,
-                    fontWeight: 900,
-                    letterSpacing: 2,
-                    lineHeight: 1,
-                    color: sigColor,
-                    textShadow:
-                      signal.sig === "buy"
-                        ? "0 0 30px rgba(0,255,136,0.6)"
-                        : signal.sig === "sell"
-                          ? "0 0 30px rgba(255,48,96,0.6)"
-                          : "none",
-                  }}
-                >
-                  {sigLabels[signal.sig]}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "var(--font-body)",
-                    fontSize: 12,
-                    color: "var(--cb-muted)",
-                    marginTop: 2,
-                  }}
-                >
-                  {sigSubs[signal.sig]}
-                </div>
-              </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                marginBottom: 14,
-              }}
-            >
-              <ConfBar
-                label="Confidence"
-                pct={signal.confidence}
-                cls={signal.sig}
-                color={sigColor}
-              />
-              <ConfBar
-                label="Signal Strength"
-                pct={signal.strength}
-                cls={signal.sig}
-                color={sigColor}
-              />
-              <ConfBar
-                label="Bull Score"
-                pct={signal.bullPct}
-                cls="buy"
-                color="var(--cb-green)"
-              />
-            </div>
-            <div
-              style={{
-                background: "rgba(0,0,0,0.35)",
-                borderRadius: 8,
-                padding: "10px 14px",
-                fontFamily: "var(--font-body)",
-                fontSize: 12,
-                color: "var(--cb-text)",
-                lineHeight: 1.6,
-                borderLeft: `3px solid ${sigColor}`,
-                marginBottom: signal.showEE ? 14 : 0,
-              }}
-            >
-              {signal.reason}
-            </div>
-            {signal.showEE && (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4,1fr)",
-                  gap: 6,
-                }}
-              >
-                {[
-                  { label: "Entry", val: signal.entry, col: "var(--cb-cyan)" },
-                  {
-                    label: "Take Profit",
-                    val: signal.tp,
-                    col: "var(--cb-green)",
-                  },
-                  { label: "Stop Loss", val: signal.sl, col: "var(--cb-red)" },
-                  {
-                    label: "Risk/Reward",
-                    val: "1:2.1",
-                    col: "var(--cb-purple)",
-                  },
-                ].map((e) => (
-                  <div
-                    key={e.label}
-                    style={{
-                      background: "rgba(0,0,0,0.3)",
-                      borderRadius: 8,
-                      padding: "10px 8px",
-                      border: "1px solid var(--cb-border)",
-                      textAlign: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 8,
-                        color: "var(--cb-muted)",
-                        letterSpacing: 1,
-                        textTransform: "uppercase",
-                        marginBottom: 4,
-                        fontFamily: "var(--font-body)",
-                      }}
-                    >
-                      {e.label}
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: "var(--font-heading)",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: e.col,
-                      }}
-                    >
-                      {e.val}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* CHART */}
-          <div
+            data-ocid="allsignals.panel"
             style={{
               background: "var(--cb-card)",
-              border: "1px solid var(--cb-border)",
+              border: "1px solid var(--cb-border2)",
               borderRadius: 14,
-              padding: 14,
+              overflow: "hidden",
               marginBottom: 14,
             }}
           >
             <div
               style={{
+                padding: "10px 16px",
+                borderBottom: "1px solid var(--cb-border)",
+                background: "rgba(0,229,255,0.03)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                marginBottom: 12,
-                flexWrap: "wrap",
-                gap: 8,
               }}
             >
-              <div
+              <span
                 style={{
                   fontFamily: "var(--font-heading)",
                   fontSize: 9,
                   letterSpacing: 2,
+                  color: "var(--cb-cyan)",
+                  textTransform: "uppercase",
+                }}
+              >
+                ⚡ BOT SIGNAL — ALL COINS (12MIN)
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 9,
                   color: "var(--cb-muted)",
                 }}
               >
-                📊 PRICE CHART + SIGNALS
+                {allCoinSignals.filter((s) => s.sig !== "neutral").length}{" "}
+                active signals
+              </span>
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "110px 70px 80px 110px 110px 110px",
+                  gap: 0,
+                  padding: "6px 16px",
+                  borderBottom: "1px solid rgba(255,255,255,0.04)",
+                  minWidth: 620,
+                }}
+              >
+                {["Coin", "Signal", "Conf", "Price", "Target", "Stop Loss"].map(
+                  (h) => (
+                    <div
+                      key={h}
+                      style={{
+                        fontFamily: "var(--font-body)",
+                        fontSize: 8,
+                        fontWeight: 700,
+                        color: "var(--cb-muted)",
+                        letterSpacing: 1.5,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {h}
+                    </div>
+                  ),
+                )}
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                {["1M", "5M", "15M"].map((lbl, i) => (
+              <div
+                data-ocid="allsignals.list"
+                style={{ maxHeight: 320, overflowY: "auto", minWidth: 620 }}
+              >
+                {allCoinSignals.length === 0 ? (
                   <div
-                    key={lbl}
-                    data-ocid={`chart.tab.${i + 1}`}
-                    onClick={() => {
-                      setActiveChartTab(i);
-                      activeChartTabRef.current = i;
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        setActiveChartTab(i);
-                        activeChartTabRef.current = i;
-                      }
-                    }}
-                    role="tab"
-                    tabIndex={0}
+                    data-ocid="allsignals.empty_state"
                     style={{
-                      padding: "4px 10px",
-                      borderRadius: 6,
-                      fontFamily: "var(--font-heading)",
-                      fontSize: 8,
-                      border: `1px solid ${activeChartTab === i ? "var(--cb-cyan)" : "var(--cb-border2)"}`,
-                      color:
-                        activeChartTab === i
-                          ? "var(--cb-cyan)"
-                          : "var(--cb-muted)",
-                      background:
-                        activeChartTab === i
-                          ? "rgba(0,229,255,0.06)"
-                          : "transparent",
-                      cursor: "pointer",
-                      letterSpacing: 1,
-                      transition: "all 0.15s",
+                      padding: 20,
+                      textAlign: "center",
+                      color: "var(--cb-muted)",
+                      fontFamily: "var(--font-body)",
+                      fontSize: 12,
                     }}
                   >
-                    {lbl}
+                    Generating signals…
                   </div>
-                ))}
+                ) : (
+                  allCoinSignals.map((row, idx) => {
+                    const meta = COINS.find((c) => c.id === row.coinId);
+                    const sc =
+                      row.sig === "buy"
+                        ? "var(--cb-green)"
+                        : row.sig === "sell"
+                          ? "var(--cb-red)"
+                          : "var(--cb-yellow)";
+                    const sbg =
+                      row.sig === "buy"
+                        ? "rgba(0,255,136,0.08)"
+                        : row.sig === "sell"
+                          ? "rgba(255,48,96,0.08)"
+                          : "rgba(255,204,0,0.08)";
+                    return (
+                      <div
+                        key={row.coinId}
+                        data-ocid={`allsignals.item.${idx + 1}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "110px 70px 80px 110px 110px 110px",
+                          gap: 0,
+                          padding: "8px 16px",
+                          borderBottom: "1px solid rgba(255,255,255,0.04)",
+                          alignItems: "center",
+                          background:
+                            idx % 2 === 0 ? "transparent" : "rgba(0,0,0,0.1)",
+                          borderLeft: `3px solid ${sc}`,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 14,
+                              color: meta?.color ?? "var(--cb-cyan)",
+                            }}
+                          >
+                            {meta?.icon ?? row.coinId.toUpperCase()}
+                          </span>
+                          <div>
+                            <div
+                              style={{
+                                fontFamily: "var(--font-heading)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: "var(--cb-text)",
+                              }}
+                            >
+                              {row.coinId.toUpperCase()}
+                            </div>
+                            <div
+                              style={{
+                                fontFamily: "var(--font-body)",
+                                fontSize: 9,
+                                color: "var(--cb-muted)",
+                              }}
+                            >
+                              {meta?.name ?? ""}
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-heading)",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: sc,
+                            background: sbg,
+                            padding: "3px 8px",
+                            borderRadius: 4,
+                            border: `1px solid ${sc}33`,
+                            display: "inline-block",
+                          }}
+                        >
+                          {row.sig === "buy"
+                            ? "BUY"
+                            : row.sig === "sell"
+                              ? "SELL"
+                              : "HOLD"}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: sc,
+                          }}
+                        >
+                          {Math.round(row.confidence)}%
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            color: "var(--cb-text)",
+                          }}
+                        >
+                          {row.price >= 1000
+                            ? `$${Math.round(row.price).toLocaleString()}`
+                            : row.price < 1
+                              ? `$${row.price.toFixed(5)}`
+                              : `$${row.price.toFixed(2)}`}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            color:
+                              row.sig === "sell"
+                                ? "var(--cb-red)"
+                                : "var(--cb-green)",
+                          }}
+                        >
+                          {row.tp >= 1000
+                            ? `$${Math.round(row.tp).toLocaleString()}`
+                            : row.tp < 1
+                              ? `$${row.tp.toFixed(5)}`
+                              : `$${row.tp.toFixed(2)}`}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            color: "#ff9500",
+                          }}
+                        >
+                          {row.sl >= 1000
+                            ? `$${Math.round(row.sl).toLocaleString()}`
+                            : row.sl < 1
+                              ? `$${row.sl.toFixed(5)}`
+                              : `$${row.sl.toFixed(2)}`}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
-            <TradingViewChart symbol={tvSymbol} />
           </div>
 
           {/* INDICATORS */}

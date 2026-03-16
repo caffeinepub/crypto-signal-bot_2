@@ -26,6 +26,7 @@ export interface CoinPrediction {
   sellPrice: number;
   targetPrice: number;
   stopLossPrice: number;
+  macdCrossover: "bullish" | "bearish" | "neutral";
 }
 
 export interface PredictionState {
@@ -132,12 +133,11 @@ function computePrediction(coinId: string, closes: number[]): CoinPrediction {
     emaScore = Math.max(-1, Math.min(1, diff * 50));
   }
 
-  const { macd: macdLine, signal: sigLine, hist } = macdValues(closes);
+  const { hist } = macdValues(closes);
   let macdScore = 0;
-  if (macdLine > sigLine && hist > 0)
-    macdScore = Math.min(1, (hist / price) * 5000);
-  else if (macdLine < sigLine && hist < 0)
-    macdScore = Math.max(-1, (hist / price) * 5000);
+  const histNorm = (hist / price) * 5000;
+  if (hist > 0) macdScore = Math.min(1, histNorm);
+  else if (hist < 0) macdScore = Math.max(-1, histNorm);
 
   const bbPos = bollingerPos(closes);
   const bbScore = -(bbPos - 0.5) * 2;
@@ -188,6 +188,7 @@ function computePrediction(coinId: string, closes: number[]): CoinPrediction {
     sellPrice,
     targetPrice,
     stopLossPrice,
+    macdCrossover: hist > 0 ? "bullish" : hist < 0 ? "bearish" : "neutral",
   };
 }
 
@@ -232,7 +233,7 @@ export function use15MinPrediction(
     const preds: CoinPrediction[] = [];
 
     for (const id of ids) {
-      const symbol = BINANCE_SYMBOLS[id];
+      const symbol = BINANCE_SYMBOLS[id.toUpperCase()];
       let closes: number[] | null = null;
 
       if (symbol) {

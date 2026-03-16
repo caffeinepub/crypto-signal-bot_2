@@ -347,7 +347,13 @@ export function PredictionsPanel({
                     </div>
 
                     {/* Signal badge */}
-                    <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4,
+                      }}
+                    >
                       <span
                         style={{
                           fontFamily: "var(--font-heading)",
@@ -361,6 +367,40 @@ export function PredictionsPanel({
                         }}
                       >
                         {pred.signal}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color:
+                            pred.macdCrossover === "bullish"
+                              ? "var(--cb-green)"
+                              : pred.macdCrossover === "bearish"
+                                ? "var(--cb-red)"
+                                : "var(--cb-muted)",
+                          background:
+                            pred.macdCrossover === "bullish"
+                              ? "rgba(0,255,136,0.08)"
+                              : pred.macdCrossover === "bearish"
+                                ? "rgba(255,48,96,0.08)"
+                                : "rgba(255,255,255,0.04)",
+                          padding: "2px 6px",
+                          borderRadius: 3,
+                          border:
+                            pred.macdCrossover === "bullish"
+                              ? "1px solid rgba(0,255,136,0.3)"
+                              : pred.macdCrossover === "bearish"
+                                ? "1px solid rgba(255,48,96,0.3)"
+                                : "1px solid rgba(255,255,255,0.1)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {pred.macdCrossover === "bullish"
+                          ? "MACD ↗"
+                          : pred.macdCrossover === "bearish"
+                            ? "MACD ↘"
+                            : "MACD →"}
                       </span>
                     </div>
 
